@@ -1,2 +1,5 @@
 # 虛擬環境
 env/
+
+# 忽略特定的 pickle 檔案
+ClassData/
