@@ -3,3 +3,4 @@ env/
 
 # 忽略特定的 pickle 檔案
 ClassData/
+HW3/Model/
