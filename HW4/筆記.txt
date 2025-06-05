@@ -1,0 +1,80 @@
+CNN：
+1：
+class DeblurCNN(nn.Module):
+    '''
+    DeblurCNN model: original SRCNN model from paper
+    '''
+    def __init__(self):
+        super(DeblurCNN, self).__init__()
+
+        self.conv1 = nn.Conv2d(
+            3, 64, kernel_size=9, stride=(1, 1), padding=(2, 2)
+        )         self.conv2 = nn.Conv2d(
+            64, 32, kernel_size=1, stride=(1, 1), padding=(2, 2)
+        ) 
+        self.conv3 = nn.Conv2d(
+            32, 3, kernel_size=5, stride=(1, 1), padding=(2, 2)
+        ) 
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.conv3(x)
+
+        return x
+
+RES_CNN：
+1：
+class DeblurCNN_RES(nn.Module):
+    '''
+    DeblurCNN_RES model: originate from the Residual SRCNN model from paper
+    '''
+    def __init__(self):
+        super(DeblurCNN_RES, self).__init__()
+
+        self.conv1 = nn.Conv2d(
+            3, 128, kernel_size=9, stride=(1, 1), padding=(2, 2) 
+        ) # 3 input image channel, 64 output channels, 9x9 square convolution
+        self.conv2 = nn.Conv2d(
+            128, 64, kernel_size=1, stride=(1, 1), padding=(2, 2)
+        ) # 64 input image channel, 32 output channels, 1x1 square convolution
+        self.conv3 = nn.Conv2d(
+            64, 3, kernel_size=5, stride=(1, 1), padding=(2, 2)
+        ) # 32 input image channel, 3 output channels, 5x5 square convolution
+
+    def forward(self, x):
+        identity = x
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.conv3(x)
+        out = torch.add(x, identity) # residual connection
+        return out
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
