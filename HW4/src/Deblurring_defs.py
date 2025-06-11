@@ -1,11 +1,13 @@
 """
-This file contains 3 CNN models: DeblurCNN model, 
-DeblurCNN_RES model and the DeblurSuperResCNN model.
+This file contains 5 CNN models: DeblurCNN model, 
+DeblurCNN_RES model, DeblurSuperResCNN model,
+DnCNN model, EDSR_Deblur model.
 
-In addition, it contains the DeblurDataset class for 
-loading images and two functions: the psnr function for computing Peak Signal 
-to Noise Ratio (PSNR), and the save_decoded_image function for 
-saving the decoded image.
+In addition, it contains the DeblurDataset class for loading images and 
+three functions: 
+the psnr function for computing Peak Signal to Noise Ratio (PSNR), 
+the fit function for fitting the model, 
+the validate function for validating the model.
 """
 
 import torch.nn as nn
@@ -16,59 +18,37 @@ import cv2
 import math
 import numpy as np
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 # DIR_PATH = '..' # path to the directory where the images are stored
 # BLURRED_DIR = f"{DIR_PATH}/inputs/gaussian_blurred" # path to blurred images
 # SHARP_DIR = f"{DIR_PATH}/inputs/General100" # path to sharp images
 
 
-# class DeblurCNN(nn.Module):
-#     '''
-#     DeblurCNN model: original SRCNN model from paper
-#     '''
-#     def __init__(self):
-#         super(DeblurCNN, self).__init__()
-
-#         self.conv1 = nn.Conv2d(
-#             3, 64, kernel_size=9, stride=(1, 1), padding=(2, 2)  # stride = 步長, padding = 填充
-#         ) # 3 input image channel, 64 output channels, 9x9 square convolution
-#         self.conv2 = nn.Conv2d(
-#             64, 32, kernel_size=1, stride=(1, 1), padding=(2, 2)
-#         ) # 64 input image channel, 32 output channels, 1x1 square convolution
-#         self.conv3 = nn.Conv2d(
-#             32, 3, kernel_size=5, stride=(1, 1), padding=(2, 2)
-#         ) # 32 input image channel, 3 output channels, 5x5 square convolution
-
-#     def forward(self, x):
-#         x = F.relu(self.conv1(x)) # 
-#         x = F.relu(self.conv2(x))
-#         x = self.conv3(x)
-
-#         return x
-
+# Model 1 : DeblurCNN
 class DeblurCNN(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout_rate=0.2):
         super(DeblurCNN, self).__init__()
 
         self.conv1 = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=9, padding=4),
-            nn.BatchNorm2d(64),
-            nn.ReLU()
+            nn.Conv2d(3, 128, kernel_size=9, padding=4),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)        # Dropout after activation
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=5, padding=2),
-            nn.BatchNorm2d(64),
-            nn.ReLU()
+            nn.Conv2d(128, 64, kernel_size=5, padding=2),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
         )
         self.conv3 = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU()
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
         )
         self.conv4 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU()
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
         )
         self.output_layer = nn.Conv2d(32, 3, kernel_size=3, padding=1)
 
@@ -81,77 +61,130 @@ class DeblurCNN(nn.Module):
         return x
 
 
-# SRCNN model: modified model from paper
+# Model 2 : DeblurCNN_RES
 class DeblurCNN_RES(nn.Module):
-    '''
-    DeblurCNN_RES model: originate from the Residual SRCNN model from paper
-    '''
-    def __init__(self):
+    def __init__(self, dropout_rate=0.2):
         super(DeblurCNN_RES, self).__init__()
 
-        self.conv1 = nn.Conv2d(
-            3, 128, kernel_size=9, stride=(1, 1), padding=(2, 2) 
-        ) # 3 input image channel, 64 output channels, 9x9 square convolution
-        self.conv2 = nn.Conv2d(
-            128, 64, kernel_size=1, stride=(1, 1), padding=(2, 2)
-        ) # 64 input image channel, 32 output channels, 1x1 square convolution
-        self.conv3 = nn.Conv2d(
-            64, 3, kernel_size=5, stride=(1, 1), padding=(2, 2)
-        ) # 32 input image channel, 3 output channels, 5x5 square convolution
+        self.block1 = nn.Sequential(
+            nn.Conv2d(3, 128, kernel_size=9, padding=4),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
+        )
+        self.block2 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=5, padding=2),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
+        )
+        self.block3 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
+        )
+        self.block4 = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Dropout2d(dropout_rate)
+        )
+        self.output_conv = nn.Conv2d(32, 3, kernel_size=3, padding=1)
 
     def forward(self, x):
         identity = x
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = self.conv3(x)
-        out = torch.add(x, identity) # residual connection
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
+        x = self.output_conv(x)
+        out = torch.add(x, identity)  # Residual connection
         return out
 
 
-
+# Model 3 : DeblurSuperResCNN
 class DeblurSuperResCNN(nn.Module):
-    '''
-    DeblurSuperResCNN model: originate from the Deblurring + SRCNN model from paper
-    '''
-    def __init__(self):
+    def __init__(self, dropout_rate=0.2):
         super(DeblurSuperResCNN, self).__init__()
 
-        # First Convolutional Layer
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=9, padding=4)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=128, kernel_size=9, padding=4)
         self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout2d(dropout_rate)
 
-        # Second Convolutional Layer
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=1, padding=0)
+        self.conv2 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=5, padding=2)
         self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout2d(dropout_rate)
 
-        # Third Convolutional Layer (Feature Concatenation)
-        self.conv3 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=5, padding=2)
+        self.conv3 = nn.Conv2d(in_channels=192, out_channels=32, kernel_size=3, padding=1)
         self.relu3 = nn.ReLU()
+        self.dropout3 = nn.Dropout2d(dropout_rate)
 
-        # Output Layer (Reconstruction)
-        self.conv4 = nn.Conv2d(in_channels=128, out_channels=3, kernel_size=3, padding=1)
-        self.sigmoid = nn.Sigmoid()
+        self.conv4 = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1)
+        self.relu4 = nn.ReLU()
+        self.dropout4 = nn.Dropout2d(dropout_rate)
+
+        self.conv5 = nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, padding=1)
+        # No activation for the last layer
 
     def forward(self, x):
-        # First Layer
-        out1 = self.relu1(self.conv1(x))
-
-        # Second Layer
-        out2 = self.relu2(self.conv2(out1))
-
-        # Feature Concatenation
-        concat = torch.cat((out1, out2), dim=1)  # Concatenate along channel dimension
-
-        # Third Layer
-        out3 = self.relu3(self.conv3(concat))
-
-        # Output Layer
-        out_final = self.sigmoid(self.conv4(out3))
-
+        out1 = self.dropout1(self.relu1(self.conv1(x)))
+        out2 = self.dropout2(self.relu2(self.conv2(out1)))
+        concat = torch.cat((out1, out2), dim=1)
+        out3 = self.dropout3(self.relu3(self.conv3(concat)))
+        out4 = self.dropout4(self.relu4(self.conv4(out3)))
+        out_final = self.conv5(out4)  # No activation here
         return out_final
 
 
+# Model 4 : DnCNN
+class DnCNN(nn.Module):
+    def __init__(self, channels=3, num_of_layers=17, features=64):
+        super(DnCNN, self).__init__()
+        layers = []
+        # 第一層
+        layers.append(nn.Conv2d(channels, features, kernel_size=3, padding=1, bias=False))
+        layers.append(nn.ReLU(inplace=True))
+        # 中間層
+        for _ in range(num_of_layers - 2):
+            layers.append(nn.Conv2d(features, features, kernel_size=3, padding=1, bias=False))
+            layers.append(nn.BatchNorm2d(features))
+            layers.append(nn.ReLU(inplace=True))
+        # 最後一層
+        layers.append(nn.Conv2d(features, channels, kernel_size=3, padding=1, bias=False))
+        self.dncnn = nn.Sequential(*layers)
 
+    def forward(self, x):
+        out = self.dncnn(x)
+        # **去模糊可以選擇直接 out 或者學殘差： x - out**
+        # 這裡直接回傳重建圖像，如果你要殘差學習可用 x - out
+        return out
+
+
+# Model 5 : EDSR
+class ResidualBlock(nn.Module):
+    def __init__(self, n_feats):
+        super(ResidualBlock, self).__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(n_feats, n_feats, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(n_feats, n_feats, kernel_size=3, padding=1),
+        )
+
+    def forward(self, x):
+        return x + self.block(x)  # 殘差連接
+
+class EDSR_Deblur(nn.Module):
+    def __init__(self, channels=3, n_feats=64, n_resblocks=4): # 原 n_resblocks=8
+        super(EDSR_Deblur, self).__init__()
+        self.head = nn.Conv2d(channels, n_feats, kernel_size=3, padding=1)
+        self.body = nn.Sequential(*[ResidualBlock(n_feats) for _ in range(n_resblocks)])
+        self.tail = nn.Conv2d(n_feats, channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        x = self.head(x)
+        x = self.body(x)
+        x = self.tail(x)
+        return x
+
+
+# 定義 DeblurDataset，用於資料前處理
 class DeblurDataset(Dataset):
     """
     Custom Dataset for loading images for deblurring.
@@ -190,6 +223,8 @@ class DeblurDataset(Dataset):
         else:
             return blur_image
 
+
+# 定義計算 PSNR 值的函數
 def psnr(label, outputs, max_val=1.):
     """
     Compute Peak Signal to Noise Ratio (the higher the better).
@@ -212,12 +247,53 @@ def psnr(label, outputs, max_val=1.):
         return PSNR
 
 
-def save_decoded_image(img, name, size): 
-    """
-    Save the decoded image (per batch) to the specified path.
-    Args:
-        img (torch.Tensor): expect a batch of the image tensor to save.
-        name (str): The name of the file to save the image as.
-    """
-    img = img.view(img.size(0), 3, size[0], size[1])
-    save_image(img, name)
+# 定義模型訓練的函數
+def fit(model, dataloader, device, optimizer, criterion):
+    model.train()
+    running_loss = 0.0
+    running_psnr = 0.0
+    for i, data in tqdm(enumerate(dataloader), total=len(dataloader)):
+        blur_image = data[0]
+        sharp_image = data[1]
+        blur_image = blur_image.to(device)
+        sharp_image = sharp_image.to(device)
+        optimizer.zero_grad()
+        outputs = model(blur_image)
+        loss = criterion(outputs, sharp_image)
+        # backpropagation
+        loss.backward()
+        # update the parameters
+        optimizer.step()
+        running_loss += loss.item()
+        running_psnr +=  psnr(sharp_image, outputs)
+    
+    train_loss = running_loss/len(dataloader.dataset)
+    train_psnr = running_psnr/len(dataloader)
+    print(f"Train Loss: {train_loss:.5f} - Train PSNR: {train_psnr:.2f} dB")
+    # print(f"Train Loss: {train_loss:.5f}")
+    
+    return train_loss, train_psnr
+
+
+# 定義模型測試的函數
+def validate(model, dataloader, device, criterion):
+    model.eval()
+    running_loss = 0.0
+    running_psnr = 0.0
+    with torch.no_grad():
+        for i, data in tqdm(enumerate(dataloader), total=len(dataloader)):
+            blur_image = data[0]
+            sharp_image = data[1]
+            blur_image = blur_image.to(device)
+            sharp_image = sharp_image.to(device)
+            outputs = model(blur_image)
+            loss = criterion(outputs, sharp_image)
+            running_loss += loss.item()
+            running_psnr +=  psnr(sharp_image, outputs)
+            
+        val_loss = running_loss/len(dataloader.dataset)
+        val_psnr = running_psnr/len(dataloader)
+        print(f"Val Loss: {val_loss:.5f} - Val PSNR: {val_psnr:.2f} dB")
+        
+        return val_loss, val_psnr
+    
