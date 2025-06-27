@@ -3,7 +3,8 @@ env/
 
 # 忽略特定的 pickle 檔案
 ClassData/
-HW2/data/
-HW3/Model/
-HW4/inputs/T91_blurred_patches
-HW4/inputs/T91_sharp_patches
+ClassNote/
+Project_2/data/
+Project_3/Model/
+Project_4/inputs/T91_blurred_patches
+Project_4/inputs/T91_sharp_patches
